@@ -105,6 +105,14 @@ export const SHOPS = [
   { type: 'ramen', icon: '🍜', word: '라면', color: '#ff7a4a' },
   { type: 'photo', icon: '📷', word: '사진관', color: '#bfe9ff' },
   { type: 'pc', icon: '🖥️', word: 'PC방', color: '#5ab0ff' },
+  { type: 'goods', icon: '🧸', word: '소품샵', color: '#ffb0c8' },
+  { type: 'vintage', icon: '👗', word: '빈티지', color: '#d8a0ff' },
+  { type: 'book', icon: '📚', word: '책방', color: '#ffe08a' },
+  { type: 'vinyl', icon: '💿', word: 'LP바', color: '#3FF3FF' },
+  { type: 'pocha', icon: '🏮', word: '포차', color: '#ff5a5a' },
+  { type: 'arcade', icon: '🕹️', word: '오락실', color: '#7dff9a' },
+  { type: 'flower', icon: '💐', word: '꽃집', color: '#ff9ad5' },
+  { type: 'tea', icon: '🧋', word: '버블티', color: '#e8c08a' },
   { type: 'stage', icon: '🎸', word: '버스킹', color: '#B07CFF', only: true }, // 스탬프 장소 전용
   { type: 'graffiti', icon: '🎨', word: '놀이터', color: '#3FF3FF', only: true },
   { type: 'fourcut', icon: '📸', word: '네컷사진', color: '#FFD23F', only: true },
@@ -120,6 +128,18 @@ export const LANDMARKS = [
   { id: 'walk', x: 17.5, y: 40.4, word: '🎶 걷고싶은거리', color: '#B07CFF' },
   { id: 'club', x: 13.5, y: 36.4, word: '🪩 클럽거리', color: '#FF3FA4', flash: true },
   { id: 'red', x: 19, y: 55.4, word: '🧱 레드로드', color: '#ff5a5a' },
+  { id: 'book', x: 34, y: 55.4, word: '📚 경의선책거리', color: '#ffe08a' },
+  { id: 'yanghwa', x: 26.5, y: 28.4, word: '🚌 양화로', color: '#5ab0ff' },
+  { id: 'playground', x: 10.5, y: 19.4, word: '🎠 홍대놀이터', color: '#3FF3FF' },
+  { id: 'mural', x: 7, y: 15.4, word: '🎨 벽화거리', color: '#FFD23F' },
+  { id: 'ttaeng', x: 24, y: 11.4, word: '🚃 땡땡거리', color: '#ff8a3d' },
+  { id: 'yeonnam', x: 7, y: 7.4, word: '🌿 연남동', color: '#7dff9a' },
+  { id: 'art', x: 35, y: 2.4, word: '✏️ 미술학원거리', color: '#ff9ad5' },
+  { id: 'wausan', x: 18.5, y: 5.4, word: '⛰️ 와우산로', color: '#bfe9ff' },
+  { id: 'eoul', x: 16.5, y: 23.4, word: '🎤 어울마당로', color: '#B07CFF' },
+  { id: 'pocha', x: 9.5, y: 32.4, word: '🏮 포차거리', color: '#ff5a5a' },
+  { id: 'vintage', x: 23.5, y: 49.4, word: '👗 빈티지거리', color: '#3FF3FF' },
+  { id: 'seogyo', x: 28.5, y: 47.4, word: '🏘️ 서교동', color: '#ffe08a' },
 ];
 
 // 스탬프 장소 바로 옆 가게는 이 종류로 (장소 찾기 힌트)

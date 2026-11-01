@@ -342,6 +342,51 @@ const SHOP_FRONTS = {
   pc: shopFront('#1a2a4a', '#5ab0ff', '#1a2a4a', '#20305a', (c) => {
     for (const x of [6, 17]) { rect(c, NEON.cyan, x, 16, 9, 6); rect(c, '#5a5670', x + 3, 22, 3, 3); }
   }),
+  goods: shopFront('#5a3a4a', '#ffb0c8', '#ffffff', '#fff0f4', (c) => {
+    rect(c, '#c98a4a', 6, 19, 6, 6); rect(c, '#c98a4a', 6, 17, 2, 2); rect(c, '#c98a4a', 10, 17, 2, 2); // 곰 인형
+    rect(c, '#9ad8ff', 15, 21, 5, 4); rect(c, '#FFD23F', 22, 18, 4, 7); rect(c, '#ff7aa8', 22, 18, 4, 2);
+  }),
+  vintage: shopFront('#3a2a3a', '#d8a0ff', '#3a2a3a', '#f0e0c8', (c) => {
+    rect(c, '#5a5670', 5, 14, 22, 1);
+    [[6, '#a85a3a'], [13, '#3a6a5a'], [20, '#8a6ad0']].forEach(([x, col]) => {
+      rect(c, col, x, 16, 6, 10); rect(c, '#00000033', x + 3, 16, 1, 10);
+    });
+  }),
+  book: shopFront('#4a3a2a', '#ffe08a', '#6a4a2a', '#ffe8b0', (c) => {
+    for (const y of [15, 21]) {
+      rect(c, '#6a4a2a', 4, y + 5, 24, 1);
+      for (let x = 5; x < 27; x += 2) rect(c, ['#e8402a', '#3a6fd8', '#2f9a55', '#8a6ad0', '#c98a4a'][(x + y) % 5], x, y + (x % 3 ? 0 : 1), 2, 5 - (x % 3 ? 0 : 1));
+    }
+  }),
+  vinyl: shopFront('#1a1a2a', '#3FF3FF', '#1a1a2a', '#2a2a40', (c) => {
+    for (const x of [10, 22]) {
+      c.fillStyle = '#0a0a12'; c.beginPath(); c.arc(x, 20, 6, 0, Math.PI * 2); c.fill();
+      rect(c, '#e8402a', x - 1, 19, 2, 2);
+    }
+  }),
+  pocha: shopFront('#3a1a1a', '#ff7a2a', '#e8402a', '#ff9a50', (c) => {
+    rect(c, '#2f9a55', 8, 18, 3, 7); rect(c, '#2f9a55', 9, 16, 1, 2); // 초록 병
+    rect(c, '#2f9a55', 14, 18, 3, 7); rect(c, '#2f9a55', 15, 16, 1, 2);
+    rect(c, '#e8402a', 21, 13, 5, 6); rect(c, '#FFD23F', 22, 15, 3, 2); // 등
+  }),
+  arcade: shopFront('#1a2a1a', '#7dff9a', '#1a2a1a', '#203a2a', (c) => {
+    for (const x of [6, 18]) {
+      rect(c, '#3a3650', x, 14, 8, 13); rect(c, NEON.pink, x + 1, 15, 6, 5);
+      rect(c, NEON.yellow, x + 2, 22, 1, 2); rect(c, NEON.cyan, x + 5, 22, 1, 1);
+    }
+  }),
+  flower: shopFront('#2a4a3a', '#ff9ad5', '#ffffff', '#f0fff0', (c) => {
+    for (const [x, col] of [[6, '#ff5aa0'], [12, '#FFD23F'], [18, '#ffffff'], [24, '#b07cff']]) {
+      rect(c, '#3a8a5f', x + 1, 20, 1, 5); rect(c, col, x, 17, 3, 3); rect(c, '#8a5a3a', x - 1, 24, 5, 3);
+    }
+  }),
+  tea: shopFront('#4a3a2a', '#e8c08a', '#ffffff', '#fff4e0', (c) => {
+    for (const x of [8, 18]) {
+      rect(c, '#ffffffcc', x, 16, 6, 10); rect(c, '#c98a4a', x, 20, 6, 6);
+      for (const d of [1, 3, 4]) rect(c, '#2a1e30', x + d, 24, 1, 1);
+      rect(c, '#ff5aa0', x + 3, 13, 1, 4);
+    }
+  }),
   stage: shopFront('#2a1a4a', '#B07CFF', '#FFD23F', '#3a2a5a', (c) => {
     c.fillStyle = '#FFD23F55'; c.beginPath(); c.moveTo(16, 12); c.lineTo(8, 27); c.lineTo(24, 27); c.fill();
     rect(c, '#c8c4d8', 15, 18, 2, 9); rect(c, '#2a1e30', 14, 16, 4, 3);

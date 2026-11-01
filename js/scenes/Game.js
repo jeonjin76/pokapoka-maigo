@@ -479,9 +479,20 @@ export class GameScene extends Phaser.Scene {
         shops.push({
           tiles, y,
           cx: (x0 + n / 2) * size,
-          index: normal[hash(x0, y) % normal.length],
         });
       }
+    }
+    // 가게 종류 고르기: 근처(가로 10타일·세로 8타일 안)에 이미 있는 종류는 피하고, 맵 전체에서 덜 쓰인 종류부터
+    const used = new Map(normal.map((i) => [i, 0]));
+    for (const shop of shops) {
+      const near = new Set(shops.filter((o) => o.index !== undefined
+        && Math.abs(o.cx - shop.cx) < size * 10 && Math.abs(o.y - shop.y) < 8).map((o) => o.index));
+      let pool = normal.filter((i) => !near.has(i));
+      if (!pool.length) pool = normal;
+      const least = Math.min(...pool.map((i) => used.get(i)));
+      pool = pool.filter((i) => used.get(i) === least);
+      shop.index = pool[hash(shop.tiles[0].x, shop.y) % pool.length];
+      used.set(shop.index, least + 1);
     }
     for (const [id, type] of Object.entries(STAMP_SHOPS)) {
       const spot = spots[id];
@@ -595,7 +606,7 @@ export class GameScene extends Phaser.Scene {
   // 명소 표지판과 겹치는 자리인지 (가게 간판을 빼려고)
   nearLandmark(x, y) {
     const cell = CONFIG.tile * CONFIG.cellTiles;
-    return LANDMARKS.some((lm) => Math.abs(lm.x * cell - x) < 90 && Math.abs(lm.y * cell - y) < 40);
+    return LANDMARKS.some((lm) => Math.abs(lm.x * cell - x) < 110 && Math.abs(lm.y * cell - y) < 40);
   }
 
   // 가게마다 그 가게 종류에 맞는 한글 네온 간판 (아이콘 + 글자 + 색)

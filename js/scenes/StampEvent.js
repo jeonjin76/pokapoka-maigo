@@ -5,7 +5,7 @@ import { BOSS_ANIMALS, NEON } from '../art.js';
 import { Sound } from '../sound.js';
 import { addBackdrop } from '../objects/Backdrop.js';
 
-// 스탬프 획득 연출 (약 3~4초, 터치하면 닫힘). 눈높이 일러스트 화면.
+// 스탬프 획득 연출 (처음 몇 초는 꼭 보여 주고, 그 뒤 터치하면 닫힘). 눈높이 일러스트 화면.
 //   1) 사장님이 「いらっしゃい！」  2) 아래에서 스탬프 카드가 올라옴
 //   3) 위에서 도장이 내려와 「ドン！」  4) 「スタンプ n/5 ゲット！」 + 다음 장소 힌트
 // data: { id, count, total, collected: [id...], hint }
@@ -98,13 +98,17 @@ export class StampEventScene extends Phaser.Scene {
       this.bubble.setText(data.hint);
     });
 
-    this.add.text(w / 2, h - 18, TEXTS.tapToSkip, {
-      fontFamily: font, fontSize: '11px', color: '#c8c0e0',
-    }).setOrigin(0.5);
-
+    // 처음 minShowMs 동안은 눌러도 닫히지 않음. 그 뒤에 「タップでとじる」가 나타나고 터치·키로 닫힘
+    const skip = this.add.text(w / 2, h - 18, TEXTS.tapToSkip, {
+      fontFamily: font, fontSize: '13px', color: '#c8c0e0',
+    }).setOrigin(0.5).setAlpha(0);
+    this.time.delayedCall(CONFIG.stampEvent.minShowMs, () => {
+      this.tweens.add({ targets: skip, alpha: 1, duration: 250 });
+      this.tweens.add({ targets: skip, alpha: 0.4, duration: 600, yoyo: true, repeat: -1, delay: 250 });
+      this.input.once('pointerdown', () => this.close());
+      this.input.keyboard.once('keydown', () => this.close());
+    });
     this.time.delayedCall(CONFIG.stampEvent.autoCloseMs, () => this.close());
-    this.input.once('pointerup', () => this.close());
-    this.input.keyboard.once('keydown', () => this.close());
   }
 
   close() {
