@@ -347,6 +347,102 @@ export class Crowd {
   }
 }
 
+// ── 길 가는 사람: 골목을 오가는 보통 사람. 부딪혀도 체력은 그대로 ─────
+// 갈림길마다 갈 길을 고르고, 진행 방향의 오른쪽으로 비켜 걸어서 마주 오는 사람과 엇갈림.
+// 플레이어를 밀지 않음: 앞을 막으면 멈췄다가, 오래 막으면 돌아감.
+const DIRS = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+
+export class Walker {
+  constructor(game, cx, cy, seed) {
+    const cfg = CONFIG.walker;
+    this.game = game;
+    this.cx = cx; // 지금 향하는 글자 칸
+    this.cy = cy;
+    this.dir = null;
+    this.speed = Phaser.Math.Between(cfg.speedMin, cfg.speedMax);
+    this.lane = Phaser.Math.Between(4, cfg.side);
+    this.waited = 0;
+    const p = this.cellXY(cx, cy, null);
+    this.x = p.x;
+    this.y = p.y;
+    this.sprite = makePerson(game, 'crowd', p.x, p.y, seed % NPC_COUNT, 'down', true);
+    this.sprite.body.setImmovable(true);
+    game.physics.add.collider(game.player, this.sprite);
+    this.pickNext();
+  }
+
+  // 글자 칸 가운데에서 진행 방향 오른쪽으로 lane만큼 비킨 자리
+  cellXY(cx, cy, dir) {
+    const cell = CELL();
+    const x = (cx + 0.5) * cell;
+    const y = (cy + 0.5) * cell;
+    if (!dir) return { x, y };
+    return dir.x ? { x, y: y + this.lane * dir.x } : { x: x - this.lane * dir.y, y };
+  }
+
+  goTo(dir) {
+    this.dir = dir;
+    this.cx += dir.x;
+    this.cy += dir.y;
+    this.target = this.cellXY(this.cx, this.cy, dir);
+  }
+
+  // 다음 칸 고르기: 되돌아가지 않고, 곧은 길이면 그대로 가는 일이 많게
+  pickNext() {
+    const g = this.game;
+    const open = DIRS.filter((d) => g.isWalkCell(this.cx + d.x, this.cy + d.y));
+    const back = (d) => this.dir && d.x === -this.dir.x && d.y === -this.dir.y;
+    const ahead = open.filter((d) => !back(d));
+    const choices = ahead.length ? ahead : open;
+    if (!choices.length) {
+      this.dir = null;
+      return;
+    }
+    const straight = this.dir && choices.find((d) => d.x === this.dir.x && d.y === this.dir.y);
+    this.goTo(straight && Math.random() < 0.6 ? straight : Phaser.Utils.Array.GetRandom(choices));
+  }
+
+  turnBack() {
+    const d = this.dir;
+    this.cx -= d.x;
+    this.cy -= d.y;
+    this.goTo({ x: -d.x, y: -d.y });
+  }
+
+  // 발 자리 (플레이어를 밀지 않게 미리 확인용)
+  blocksPlayer(x, y) {
+    const feet = new Phaser.Geom.Rectangle(x - 10, y + 1, 20, 12);
+    return Phaser.Geom.Intersects.RectangleToRectangle(feet, playerRect(this.game.player));
+  }
+
+  update(dt) {
+    const s = this.sprite;
+    if (!this.dir) return;
+    const step = (this.speed * dt) / 1000;
+    const dx = this.target.x - this.x;
+    const dy = this.target.y - this.y;
+    const d = Math.hypot(dx, dy);
+    const arrive = d <= step;
+    const nx = arrive ? this.target.x : this.x + (dx / d) * step;
+    const ny = arrive ? this.target.y : this.y + (dy / d) * step;
+    if (this.blocksPlayer(nx, ny)) {
+      this.waited += dt;
+      if (this.waited > CONFIG.walker.waitMs) {
+        this.waited = 0;
+        this.turnBack();
+      }
+      faceWalk(s, 0, 0);
+      return;
+    }
+    this.waited = 0;
+    this.x = nx;
+    this.y = ny;
+    s.body.reset(nx, ny);
+    faceWalk(s, dx, dy);
+    if (arrive) this.pickNext();
+  }
+}
+
 // ── 行列: 줄 서서 막고 있다가 일정 시간마다 흩어져 길이 열림 ─────
 export class Queue {
   constructor(game, tiles, seed) {

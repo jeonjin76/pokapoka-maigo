@@ -167,7 +167,7 @@ function makePlayer(scene) {
 }
 
 // ── 맵 타일 (비 오는 밤 네온 거리, 한 칸 32픽셀) ───────────────
-// 타일 번호: 0 골목, 1 큰길, 2 중앙선, 3 나무, 4 역, 5~9 지붕, 10~ 가게 앞면 (map.js SHOPS 순서)
+// 타일 번호: 0 골목, 1 큰길, 2 중앙선, 3 나무, 4 역, 5~9 지붕, 10~ 가게 앞면 (map.js SHOPS 순서), 맨 끝 레드로드
 export const ROOF_COLORS = 5;
 export const TILE = {
   ALLEY: 0,
@@ -177,6 +177,7 @@ export const TILE = {
   STATION: 4,
   ROOF: 5,
   FACADE: 5 + ROOF_COLORS,
+  RED_ROAD: 5 + ROOF_COLORS + SHOPS.length, // 걸을 수 있음 (막히는 타일 목록 밖)
 };
 export const BLOCKING_TILES = Array.from({ length: TILE.FACADE + SHOPS.length - TILE.TREE }, (_, i) => TILE.TREE + i);
 
@@ -230,6 +231,17 @@ const BASE_PAINTERS = [
     rect(ctx, '#1e5a33', 0, 14, 16, 2);
   },
 ];
+
+// 레드로드: 빨간 보도블록 (비에 젖어 반짝임)
+function paintRedRoad(ctx) {
+  rect(ctx, '#8a2f3a', 0, 0, 16, 16);
+  rect(ctx, '#a83c46', 0, 0, 16, 1);
+  rect(ctx, '#a83c46', 0, 8, 16, 1);
+  rect(ctx, '#a83c46', 0, 0, 1, 8);
+  rect(ctx, '#a83c46', 8, 8, 1, 8);
+  rect(ctx, '#d0606a', 3, 3, 2, 1);
+  rect(ctx, '#d0606a', 11, 12, 1, 1);
+}
 
 // 지붕: 밝은 테두리 + 옥상 물건(실외기·물탱크·환풍구)으로 어두워도 잘 보이게
 const ROOFS = ['#5a4a8a', '#6a4a78', '#4a5c8a', '#7a4a6a', '#4f6a7a'];
@@ -351,7 +363,7 @@ const SHOP_FRONTS = {
 // tiles.png 가 있을 때 칸 순서: 골목, 큰길, 중앙선, 나무, 역, 지붕, 앞면, 가로 간판, 세로 간판
 function makeTileset(scene) {
   const S = 32;
-  const n = TILE.FACADE + SHOPS.length;
+  const n = TILE.RED_ROAD + 1;
   const real = hasRaw(scene, 'tiles');
   ART.tiles = real;
   const tex = scene.textures.createCanvas('tiles', S * n, S);
@@ -360,7 +372,10 @@ function makeTileset(scene) {
   for (let i = 0; i < n; i++) {
     ctx.save();
     ctx.translate(i * S, 0);
-    if (real) {
+    if (i === TILE.RED_ROAD) {
+      ctx.scale(2, 2);
+      paintRedRoad(ctx);
+    } else if (real) {
       const raw = i < TILE.ROOF ? i : i < TILE.FACADE ? 5 : 6;
       drawRaw(ctx, scene, 'raw-tiles', raw, 0, 0, S, S);
       if (i >= TILE.FACADE) { // 가게마다 차양 색으로 구분

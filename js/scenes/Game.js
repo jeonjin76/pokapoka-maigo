@@ -1,16 +1,17 @@
 import { CONFIG } from '../config.js';
 import { TEXTS } from '../texts.js';
 import { makeTextures, TILE, ROOF_COLORS, BLOCKING_TILES, NEON } from '../art.js';
-import { MAP, SHOPS, STATION_SIGN, STAMP_SHOPS } from '../map.js';
+import { MAP, SHOPS, STATION_SIGN, STAMP_SHOPS, LANDMARKS, GATE_SIGN } from '../map.js';
 import { Player } from '../objects/Player.js';
-import { Tour, Flyer, BikeLane, Pigeons, Crowd, Queue, makeNpcAnims } from '../objects/Obstacles.js';
+import { Tour, Flyer, BikeLane, Pigeons, Crowd, Queue, Walker, makeNpcAnims } from '../objects/Obstacles.js';
 import { FoodStall } from '../objects/Food.js';
 import { Sound } from '../sound.js';
 
-const SOLID_CHARS = '#TE';
+const SOLID_CHARS = '#TEU';
 const STAMP_IDS = ['1', '2', '3', '4', '5'];
 const FOOD_CHARS = 'thobm';
 const NEON_RED = '#ff5a7a';
+const GATE_RISE = 48; // 홍익대 정문이 맵 위쪽 끝보다 솟아오른 높이 (픽셀)
 const KOREAN_FONT = '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
 
 // 좌표로 정해지는 의사 난수 (매번 같은 결과 → 간판·색이 새로고침해도 그대로)
@@ -39,6 +40,7 @@ export class GameScene extends Phaser.Scene {
     const rows = MAP.length * k;
     const cols = MAP[0].length * k;
     const charAt = (x, y) => (MAP[y] && MAP[y][x]) || '#'; // 글자 칸 좌표
+    this.charAt = charAt;
     const tileChar = (tx, ty) => charAt(Math.floor(tx / k), Math.floor(ty / k)); // 타일 좌표
     const isSolid = (tx, ty) => SOLID_CHARS.includes(tileChar(tx, ty));
     const isRoad = (tx, ty) => ty >= 0 && ty < rows && '=D'.includes(tileChar(tx, ty));
@@ -62,6 +64,8 @@ export class GameScene extends Phaser.Scene {
         if (ch === '#') {
           if (!isSolid(x, y + 1) && y + 1 < rows) facades.push({ x, y }); // 가게 앞면은 아래에서 정함
           row.push(TILE.ROOF + (hash(Math.floor(x / 3), Math.floor(y / 3)) % ROOF_COLORS));
+        } else if (ch === 'U') {
+          row.push(TILE.ROOF); // 위에 정문 그림을 얹음
         } else if (ch === 'T') {
           row.push(TILE.TREE);
         } else if (ch === 'E') {
@@ -74,6 +78,9 @@ export class GameScene extends Phaser.Scene {
           while (isRoad(x, y + down + 1)) down++;
           const middle = up > 0 && (down === up || down - up === 1);
           row.push(middle && x % 2 === 0 ? TILE.ROAD_LINE : TILE.ROAD);
+        } else if (ch === 'R' || (ch !== '.' && (charAt(Math.floor(x / k) - 1, Math.floor(y / k)) === 'R'
+          || charAt(Math.floor(x / k) + 1, Math.floor(y / k)) === 'R'))) {
+          row.push(TILE.RED_ROAD); // 레드로드 위 물건 자리도 빨간 바닥으로
         } else {
           row.push(TILE.ALLEY);
         }
@@ -93,6 +100,8 @@ export class GameScene extends Phaser.Scene {
     this.layer.setCollision(BLOCKING_TILES);
 
     this.addSigns(shops, tileChar);
+    this.addLandmarks();
+    this.addGate();
     this.cameras.main.setBackgroundColor('#120e24');
 
     this.worldW = cols * size;
@@ -106,13 +115,14 @@ export class GameScene extends Phaser.Scene {
     this.addStamps(spots);
     this.addVan(spots.V);
     this.addThings(things);
+    this.addWalkers(start);
 
     this.arrow = this.add.image(0, 0, 'arrow').setScale(2).setDepth(20).setVisible(false);
 
     const cam = this.cameras.main;
     cam.setZoom(CONFIG.zoom * CONFIG.res); // 실제로 그리는 배율(res)만큼 더 키움
     // 위쪽 상태판에 맵 윗줄이 가리지 않도록 그만큼 위로 더 스크롤되게
-    const topPad = CONFIG.topBarHeight / CONFIG.zoom;
+    const topPad = CONFIG.topBarHeight / CONFIG.zoom + GATE_RISE + 8; // 맵 위로 솟은 정문까지 보이게
     cam.setBounds(0, -topPad, this.worldW, this.worldH + topPad);
     cam.startFollow(this.player, true, 0.15, 0.15);
     cam.setRoundPixels(true);
@@ -188,6 +198,26 @@ export class GameScene extends Phaser.Scene {
       }
       this.queues.push(new Queue(this, group, this.queues.length));
     }
+  }
+
+  // 길 가는 사람이 다닐 수 있는 글자 칸 (골목·레드로드·물건 자리. 큰길·행렬·밴·건물은 빼고)
+  isWalkCell(cx, cy) {
+    const ch = this.charAt(cx, cy);
+    return !(SOLID_CHARS + '=DXV').includes(ch);
+  }
+
+  // 길 가는 보통 사람들을 골목 여기저기에 흩어 놓음 (출발 지점 바로 옆은 빼고)
+  addWalkers(start) {
+    this.walkers = [];
+    const cell = CONFIG.tile * CONFIG.cellTiles;
+    const sx = Math.floor(start.x / cell);
+    const sy = Math.floor(start.y / cell);
+    const cells = [];
+    MAP.forEach((line, y) => [...line].forEach((ch, x) => {
+      if ('.R'.includes(ch) && Math.abs(x - sx) + Math.abs(y - sy) > 2) cells.push({ x, y });
+    }));
+    Phaser.Utils.Array.Shuffle(cells);
+    cells.slice(0, CONFIG.walker.count).forEach((c, i) => this.walkers.push(new Walker(this, c.x, c.y, i)));
   }
 
   addStamps(spots) {
@@ -471,10 +501,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   // 네온 간판 하나: 빈 간판 판(그림 또는 코드로 그린 판) + 코드로 얹는 한글 글자 + 바닥에 비친 불빛
-  neonSign(cx, cy, word, color, { vertical = false, big = false, reflectY = null } = {}) {
+  neonSign(cx, cy, word, color, { vertical = false, big = false, huge = false, reflectY = null } = {}) {
     const text = this.add.text(cx, cy, vertical ? [...word].join('\n') : word, {
       fontFamily: KOREAN_FONT,
-      fontSize: big ? '13px' : '11px',
+      fontSize: huge ? '16px' : big ? '13px' : '11px',
       fontStyle: 'bold',
       color,
       align: 'center',
@@ -498,6 +528,74 @@ export class GameScene extends Phaser.Scene {
     if (reflectY !== null) {
       this.add.ellipse(cx, reflectY, bw + 10, 12, num, 0.22).setDepth(1).setBlendMode('ADD');
     }
+    return text;
+  }
+
+  // 홍대 명소 표지판: 큰 한글 네온 + 아래에 작은 일본어 이름
+  addLandmarks() {
+    const cell = CONFIG.tile * CONFIG.cellTiles;
+    const flashColors = [NEON.pink, NEON.cyan, NEON.yellow, NEON.purple];
+    for (const lm of LANDMARKS) {
+      const x = lm.x * cell;
+      const y = lm.y * cell;
+      const text = this.neonSign(x, y, lm.word, lm.color, { huge: true, reflectY: y + cell * 0.7 });
+      this.add.text(x, y + 15, TEXTS.landmarks[lm.id], {
+        fontFamily: CONFIG.font, fontSize: '9px', fontStyle: 'bold', color: '#ffffff',
+        backgroundColor: '#120e24cc', padding: { x: 3, y: 1 }, resolution: 4,
+      }).setOrigin(0.5, 0).setDepth(6);
+      if (lm.flash) { // 클럽 조명처럼 색이 바뀜
+        let i = 0;
+        this.time.addEvent({
+          delay: 450,
+          loop: true,
+          callback: () => {
+            const c = flashColors[i++ % flashColors.length];
+            text.setColor(c).setShadow(0, 0, c, 5, false, true);
+          },
+        });
+      }
+    }
+  }
+
+  // 홍익대학교 정문 (맵 글자 U): 벽돌 기둥 두 개 + 학교 이름 판 + 안쪽 캠퍼스 불빛
+  addGate() {
+    const cell = CONFIG.tile * CONFIG.cellTiles;
+    const row = MAP.findIndex((line) => line.includes('U'));
+    if (row < 0) return;
+    const x0 = MAP[row].indexOf('U') * cell;
+    const x1 = (MAP[row].lastIndexOf('U') + 1) * cell;
+    const w = x1 - x0;
+    const top = row * cell;
+    const bottom = top + cell;
+    const g = this.add.graphics().setDepth(4);
+    g.fillStyle(0x1a1430).fillRect(x0, top, w, cell);
+    g.fillStyle(0x2c2650).fillRect(x0 + 34, top + 24, w - 68, cell - 24); // 캠퍼스 건물
+    for (let i = 0; i < 9; i++) {
+      g.fillStyle(i % 3 ? 0xffd27a : 0x9ad8ff, 0.9).fillRect(x0 + 44 + i * 28, top + 32 + (i % 2) * 12, 8, 6);
+    }
+    const plate = top - GATE_RISE; // 학교 이름 판은 맵 위로 솟음
+    for (const px of [x0 + 4, x1 - 30]) { // 벽돌 기둥
+      g.fillStyle(0x8a3a30).fillRect(px, plate + 20, 26, bottom - plate - 20);
+      g.fillStyle(0xb0503e);
+      for (let by = plate + 28, n = 0; by < bottom - 2; by += 7, n++) g.fillRect(px + (n % 2 ? 2 : 12), by, 12, 3);
+      g.fillStyle(0xffe08a).fillCircle(px + 13, top + 30, 4); // 등
+    }
+    g.fillStyle(0x3b2a20).fillRect(x0 - 6, plate, w + 12, 26); // 학교 이름 판
+    g.lineStyle(2, 0xffd23f).strokeRect(x0 - 5, plate + 1, w + 10, 24);
+    this.add.text(x0 + w / 2, plate + 13, GATE_SIGN, {
+      fontFamily: KOREAN_FONT, fontSize: '16px', fontStyle: 'bold', color: '#fff6e6', resolution: 4,
+    }).setOrigin(0.5).setDepth(5).setShadow(0, 0, NEON.yellow, 6, false, true);
+    this.add.text(x0 + w / 2, bottom - 2, TEXTS.landmarks.gate, {
+      fontFamily: CONFIG.font, fontSize: '9px', fontStyle: 'bold', color: '#ffffff',
+      backgroundColor: '#120e24cc', padding: { x: 3, y: 1 }, resolution: 4,
+    }).setOrigin(0.5, 1).setDepth(6);
+    this.add.ellipse(x0 + w / 2, bottom + 12, w, 20, 0xffd23f, 0.18).setDepth(1).setBlendMode('ADD');
+  }
+
+  // 명소 표지판과 겹치는 자리인지 (가게 간판을 빼려고)
+  nearLandmark(x, y) {
+    const cell = CONFIG.tile * CONFIG.cellTiles;
+    return LANDMARKS.some((lm) => Math.abs(lm.x * cell - x) < 90 && Math.abs(lm.y * cell - y) < 40);
   }
 
   // 가게마다 그 가게 종류에 맞는 한글 네온 간판 (아이콘 + 글자 + 색)
@@ -507,6 +605,7 @@ export class GameScene extends Phaser.Scene {
       const info = SHOPS[shop.index];
       const y = shop.y;
       // 가로 간판: 차양 위
+      if (!shop.stamp && this.nearLandmark(shop.cx, y * size)) continue; // 스탬프 장소 간판은 그대로
       if (shop.stamp || shop.tiles.length > 1 || hash(shop.tiles[0].x, y) % 2 === 0) {
         this.neonSign(shop.cx, y * size + 8, `${info.icon} ${info.word}`, info.color, {
           big: shop.stamp, reflectY: (y + 1) * size + 8,
@@ -540,6 +639,7 @@ export class GameScene extends Phaser.Scene {
     for (const l of this.lanes) l.update(now);
     for (const p of this.pigeons) p.update(now);
     for (const q of this.queues) q.update(now);
+    for (const w of this.walkers) w.update(dt);
 
     if (this.isBusy()) {
       this.player.move(0, 0);

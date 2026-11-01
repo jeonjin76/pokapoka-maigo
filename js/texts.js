@@ -43,6 +43,15 @@ export const TEXTS = {
   vanLocked: (left) => `スタンプをあと${left}こ集めると\nバンのドアが開きます`,
   vanLabel: 'ポカポカ',
 
+  // 홍대 명소 (한글 표지판 아래 작은 일본어 이름)
+  landmarks: {
+    gate: '弘益大学 正門',
+    forest: '京義線の森の道',
+    walk: '歩きたい通り',
+    club: 'クラブ通り',
+    red: 'レッドロード',
+  },
+
   soundOn: '🔊',
   soundOff: '🔇',
 
