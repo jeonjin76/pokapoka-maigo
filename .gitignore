@@ -1,0 +1,10 @@
+# 비밀 값 (Cloudflare 로컬 설정 등) — 절대 올리지 않음
+.dev.vars
+.env*
+
+# 도구가 만드는 것
+node_modules/
+.wrangler/
+
+# Claude Code 개인 설정
+.claude/settings.local.json

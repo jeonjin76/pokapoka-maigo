@@ -1,0 +1,42 @@
+{
+    "van.png":  {
+                    "frameHeight":  64,
+                    "frames":  2,
+                    "frameWidth":  96
+                },
+    "player.png":  {
+                       "frameHeight":  28,
+                       "frames":  4,
+                       "frameWidth":  28
+                   },
+    "player_walk.png":  {
+                            "frameHeight":  28,
+                            "frames":  12,
+                            "frameWidth":  28
+                        },
+    "npc_cat.png":  {
+                        "frameHeight":  200,
+                        "frames":  1,
+                        "frameWidth":  200
+                    },
+    "npc_rabbit.png":  {
+                           "frameHeight":  200,
+                           "frames":  1,
+                           "frameWidth":  200
+                       },
+    "npc_bear.png":  {
+                         "frameHeight":  200,
+                         "frames":  1,
+                         "frameWidth":  200
+                     },
+    "npc_jindo.png":  {
+                          "frameHeight":  200,
+                          "frames":  1,
+                          "frameWidth":  200
+                      },
+    "npc_magpie.png":  {
+                           "frameHeight":  200,
+                           "frames":  1,
+                           "frameWidth":  200
+                       }
+}

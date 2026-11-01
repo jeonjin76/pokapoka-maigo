@@ -1,0 +1,605 @@
+import { CONFIG } from '../config.js';
+import { TEXTS } from '../texts.js';
+import { makeTextures, TILE, ROOF_COLORS, BLOCKING_TILES, NEON } from '../art.js';
+import { MAP, SHOPS, STATION_SIGN, STAMP_SHOPS } from '../map.js';
+import { Player } from '../objects/Player.js';
+import { Tour, Flyer, BikeLane, Pigeons, Crowd, Queue, makeNpcAnims } from '../objects/Obstacles.js';
+import { FoodStall } from '../objects/Food.js';
+import { Sound } from '../sound.js';
+
+const SOLID_CHARS = '#TE';
+const STAMP_IDS = ['1', '2', '3', '4', '5'];
+const FOOD_CHARS = 'thobm';
+const NEON_RED = '#ff5a7a';
+const KOREAN_FONT = '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
+
+// 좌표로 정해지는 의사 난수 (매번 같은 결과 → 간판·색이 새로고침해도 그대로)
+function hash(x, y) {
+  let h = (x * 374761393 + y * 668265263) ^ 0x5bd1e995;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+// 게임 본편 (월드). 화면 위 표시·조이스틱은 UI 장면이 맡는다.
+// UI 장면에는 이벤트로 알림:
+//   'stamp'(id, 모은 개수)  'toast'(문구)  'hp'(체력)  'pigeons'()
+//   'lost'()  'respawn'()  'goal'({ ms, hp })
+export class GameScene extends Phaser.Scene {
+  constructor() {
+    super('Game');
+  }
+
+  create() {
+    makeTextures(this);
+    makeNpcAnims(this);
+
+    const size = CONFIG.tile;
+    const rows = MAP.length;
+    const cols = MAP[0].length;
+    const charAt = (x, y) => (MAP[y] && MAP[y][x]) || '#';
+    const isSolid = (x, y) => SOLID_CHARS.includes(charAt(x, y));
+    const center = (x, y) => ({ x: (x + 0.5) * size, y: (y + 0.5) * size });
+
+    // 글자 격자 → 타일 번호, 그리고 물건 자리 모으기
+    const data = [];
+    const facades = [];
+    const spots = {};
+    const things = [];
+    for (let y = 0; y < rows; y++) {
+      const row = [];
+      for (let x = 0; x < cols; x++) {
+        const ch = charAt(x, y);
+        if ('P12345V'.includes(ch)) spots[ch] = center(x, y);
+        else if ('GKDHCX'.includes(ch) || FOOD_CHARS.includes(ch)) things.push({ ch, x, y, ...center(x, y) });
+        if (ch === '#') {
+          if (!isSolid(x, y + 1) && y + 1 < rows) facades.push({ x, y }); // 가게 앞면은 아래에서 정함
+          row.push(TILE.ROOF + (hash(Math.floor(x / 3), Math.floor(y / 3)) % ROOF_COLORS));
+        } else if (ch === 'T') {
+          row.push(TILE.TREE);
+        } else if (ch === 'E') {
+          row.push(TILE.STATION);
+        } else if (ch === '=' || ch === 'D') {
+          const road = (c) => c === '=' || c === 'D';
+          const middle = road(charAt(x, y - 1)) && road(charAt(x, y + 1));
+          row.push(middle && x % 2 === 0 ? TILE.ROAD_LINE : TILE.ROAD);
+        } else {
+          row.push(TILE.ALLEY);
+        }
+      }
+      data.push(row);
+    }
+
+    // 가게 정하기: 앞면 한 덩어리(최대 3칸) = 가게 하나
+    const shops = this.planShops(facades, spots);
+    for (const shop of shops) {
+      for (const t of shop.tiles) data[t.y][t.x] = TILE.FACADE + shop.index;
+    }
+
+    const map = this.make.tilemap({ data, tileWidth: size, tileHeight: size });
+    const tiles = map.addTilesetImage('tiles');
+    this.layer = map.createLayer(0, tiles, 0, 0);
+    this.layer.setCollision(BLOCKING_TILES);
+
+    this.addSigns(shops, charAt);
+    this.cameras.main.setBackgroundColor('#120e24');
+
+    this.worldW = cols * size;
+    this.worldH = rows * size;
+    this.physics.world.setBounds(0, 0, this.worldW, this.worldH);
+
+    const start = spots.P || center(1, 1);
+    this.player = new Player(this, start.x, start.y);
+    this.physics.add.collider(this.player, this.layer);
+
+    this.addStamps(spots);
+    this.addVan(spots.V);
+    this.addThings(things);
+
+    this.arrow = this.add.image(0, 0, 'arrow').setScale(2).setDepth(20).setVisible(false);
+
+    const cam = this.cameras.main;
+    cam.setZoom(CONFIG.zoom);
+    // 위쪽 상태판에 맵 윗줄이 가리지 않도록 그만큼 위로 더 스크롤되게
+    const topPad = CONFIG.topBarHeight / CONFIG.zoom;
+    cam.setBounds(0, -topPad, this.worldW, this.worldH + topPad);
+    cam.startFollow(this.player, true, 0.15, 0.15);
+    cam.setRoundPixels(true);
+
+    this.keys = this.input.keyboard.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D,SHIFT,SPACE');
+    this.keys.SPACE.on('down', () => this.events.emit('sumimasenKey'));
+
+    this.startedAt = Date.now();
+    this.finishedAt = null;
+    this.lastProgressAt = this.time.now;
+    this.lockedMsgAt = -Infinity;
+    this.finished = false;
+    this.lostState = false;
+    this.checkpoint = { ...start };
+    this.hp = CONFIG.health.max;
+    this.walkMs = 0;
+    this.heldUntil = 0;
+    this.invincibleUntil = 0;
+    this.bumpReadyAt = 0;
+    this.speedUpUntil = 0;
+
+    this.scene.launch('UI');
+    this.ui = this.scene.get('UI');
+  }
+
+  elapsed() {
+    return (this.finishedAt || Date.now()) - this.startedAt;
+  }
+
+  isOpenTile(tx, ty) {
+    const t = this.layer.getTileAt(tx, ty);
+    return !!t && !t.collides;
+  }
+
+  // 붙잡힘·迷子 화면·골인 중이면 true
+  isBusy() {
+    return this.finished || this.lostState || this.time.now < this.heldUntil;
+  }
+
+  addThings(things) {
+    this.tours = [];
+    this.flyers = [];
+    this.lanes = [];
+    this.pigeons = [];
+    this.crowd = [];
+    this.queues = [];
+    this.stalls = [];
+    let seed = 0;
+    const queueTiles = [];
+    for (const t of things) {
+      seed++;
+      if (t.ch === 'G') this.tours.push(new Tour(this, t.x, t.y, seed));
+      else if (t.ch === 'K') this.flyers.push(new Flyer(this, t.x, t.y, seed));
+      else if (t.ch === 'D') this.lanes.push(new BikeLane(this, t.y, t.x < this.worldW / 2 ? 1 : -1));
+      else if (t.ch === 'H') this.pigeons.push(new Pigeons(this, t.x, t.y));
+      else if (t.ch === 'C') this.crowd.push(new Crowd(this, t.x, t.y, seed));
+      else if (t.ch === 'X') queueTiles.push(t);
+      else this.stalls.push(new FoodStall(this, t.x, t.y, t.ch));
+    }
+    // 붙어 있는 X 칸끼리 한 줄(행렬)로 묶음
+    const left = new Set(queueTiles);
+    while (left.size) {
+      const first = left.values().next().value;
+      left.delete(first);
+      const group = [first];
+      for (let i = 0; i < group.length; i++) {
+        for (const o of [...left]) {
+          if (Math.abs(o.x - group[i].x) + Math.abs(o.y - group[i].y) <= CONFIG.tile) {
+            left.delete(o);
+            group.push(o);
+          }
+        }
+      }
+      this.queues.push(new Queue(this, group, this.queues.length));
+    }
+  }
+
+  addStamps(spots) {
+    this.stamps = [];
+    this.collected = new Set();
+    for (const id of STAMP_IDS) {
+      const pos = spots[id];
+      if (!pos) continue;
+      const img = this.add.image(pos.x, pos.y, `stamp-${id}`).setDisplaySize(26, 26).setDepth(8);
+      this.tweens.add({ targets: img, y: pos.y - 5, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.stamps.push({ id, x: pos.x, y: pos.y, img });
+    }
+  }
+
+  addVan(pos) {
+    if (!pos) return;
+    // 밴은 V 칸과 그 오른쪽 칸에 걸쳐 서 있음
+    const van = this.physics.add.staticImage(pos.x + CONFIG.tile / 2, pos.y - 2, 'van').setDepth(9);
+    const w = 66; // 그림 크기와 상관없이 맵에서는 가로 66픽셀 (두 칸)
+    van.setDisplaySize(w, (w * van.height) / van.width);
+    van.refreshBody();
+    van.body.setSize(58, 18).setOffset((van.displayWidth - 58) / 2, van.displayHeight - 22);
+    this.van = van;
+    this.physics.add.collider(this.player, van);
+    // 차 옆면 흰 판에 「ポカポカ」 (그림이 아니라 코드로 얹는 글자)
+    this.add.text(van.x + 3, van.y + van.displayHeight * 0.1, TEXTS.vanLabel, {
+      fontFamily: CONFIG.font, fontSize: '8px', fontStyle: 'bold', color: '#ff6a2a', resolution: 4,
+    }).setOrigin(0.5).setDepth(9);
+    // 문이 열리면 반짝반짝
+    this.vanGlow = this.add.circle(van.x, van.y, 42, 0xffd23f, 0).setDepth(8).setBlendMode('ADD');
+  }
+
+  // 머리 위 말풍선
+  say(x, y, text, ms = 1200) {
+    const t = this.add.text(x, y, text, {
+      fontFamily: CONFIG.font, fontSize: '11px', color: '#3b2a20', backgroundColor: '#ffffffee',
+      padding: { x: 5, y: 3 }, resolution: 4,
+    }).setOrigin(0.5, 1).setDepth(30);
+    this.tweens.add({ targets: t, y: y - 6, duration: 200 });
+    this.time.delayedCall(ms, () => t.destroy());
+  }
+
+  floatText(x, y, text, color) {
+    const t = this.add.text(x, y, text, {
+      fontFamily: CONFIG.font, fontSize: '13px', fontStyle: 'bold', color, stroke: '#ffffff',
+      strokeThickness: 3, resolution: 4,
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets: t, y: y - 28, alpha: 0, duration: 900, onComplete: () => t.destroy() });
+  }
+
+  // 플레이어 머리 위 높이
+  headY() {
+    return this.player.y - this.player.displayHeight + 4;
+  }
+
+  // 「すみません」: 근처 단체 관광객이 비켜 줌
+  sumimasen() {
+    if (this.isBusy()) return false;
+    const now = this.time.now;
+    this.say(this.player.x, this.headY(), TEXTS.sumimasenSay, 900);
+    let any = false;
+    for (const t of this.tours) any = t.trySumimasen(now) || any;
+    return any;
+  }
+
+  holdPlayer(ms) {
+    this.heldUntil = this.time.now + ms;
+    this.player.move(0, 0);
+  }
+
+  setHp(value) {
+    this.hp = Phaser.Math.Clamp(value, 0, CONFIG.health.max);
+    this.events.emit('hp', this.hp);
+    if (this.hp <= 0 && !this.lostState && !this.finished) this.lose();
+  }
+
+  // 사람과 부딪힘: 조금 아프다 (연달아 깎이지 않게 잠깐 쉼)
+  bumpPerson(amount = CONFIG.bump.damage) {
+    const now = this.time.now;
+    if (now < this.bumpReadyAt || now < this.invincibleUntil || this.isBusy()) return;
+    this.bumpReadyAt = now + CONFIG.bump.cooldownMs;
+    Sound.play('locked');
+    this.floatText(this.player.x, this.headY(), `-${amount}`, NEON_RED);
+    this.tweens.add({ targets: this.player, alpha: 0.4, duration: 80, yoyo: true, repeat: 1 });
+    this.setHp(this.hp - amount);
+  }
+
+  hitByBike() {
+    const now = this.time.now;
+    if (now < this.invincibleUntil || this.isBusy()) return;
+    this.invincibleUntil = now + CONFIG.bike.invincibleMs;
+    Sound.play('hit');
+    this.cameras.main.shake(180, 0.006);
+    this.floatText(this.player.x, this.headY(), `-${CONFIG.bike.damage}`, NEON_RED);
+    this.events.emit('toast', TEXTS.bikeHit);
+    this.tweens.add({ targets: this.player, alpha: 0.3, duration: 100, yoyo: true, repeat: 5 });
+    this.setHp(this.hp - CONFIG.bike.damage);
+  }
+
+  eat(type, x, y) {
+    const food = CONFIG.food[type];
+    Sound.play('eat');
+    this.floatText(x, y - 24, `+${food.heal}`, '#3a8f6a');
+    this.setHp(this.hp + food.heal);
+    if (food.speedUp) {
+      this.speedUpUntil = this.time.now + food.speedMs;
+      this.events.emit('toast', `${TEXTS.foodEat(TEXTS.foodNames[type], food.heal)}\n${TEXTS.speedUp}`);
+    } else {
+      this.events.emit('toast', TEXTS.foodEat(TEXTS.foodNames[type], food.heal));
+    }
+  }
+
+  // 체력 0: 「迷子になった…」 → 마지막 스탬프 자리에서 체력 60으로 다시 (시계는 계속)
+  lose() {
+    this.lostState = true;
+    this.player.move(0, 0);
+    this.arrow.setVisible(false);
+    Sound.play('hit');
+    this.events.emit('lost');
+    this.time.delayedCall(CONFIG.health.lostScreenMs, () => {
+      this.player.body.reset(this.checkpoint.x, this.checkpoint.y);
+      this.player.setAlpha(1);
+      this.lostState = false;
+      this.invincibleUntil = this.time.now + CONFIG.bike.invincibleMs;
+      this.lastProgressAt = this.time.now;
+      this.setHp(CONFIG.health.respawnHp);
+      this.events.emit('respawn');
+    });
+  }
+
+  collectStamp(stamp) {
+    this.collected.add(stamp.id);
+    this.checkpoint = { x: stamp.x, y: stamp.y };
+    this.lastProgressAt = this.time.now;
+    this.arrow.setVisible(false);
+    this.tweens.killTweensOf(stamp.img);
+    stamp.img.destroy();
+    this.events.emit('stamp', stamp.id, this.collected.size);
+    const all = this.collected.size === this.stamps.length;
+    if (all && this.van) {
+      this.van.setTexture('van-open');
+      this.tweens.add({ targets: this.vanGlow, fillAlpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
+    }
+
+    // 사장님이 나와서 도장을 찍어 주는 연출. 그동안 게임은 멈춤 (시계는 계속 감)
+    this.player.move(0, 0);
+    this.scene.pause('UI');
+    this.scene.pause();
+    this.scene.launch('StampEvent', {
+      id: stamp.id,
+      count: this.collected.size,
+      total: this.stamps.length,
+      collected: [...this.collected],
+      hint: this.nextHint(),
+    });
+  }
+
+  onStampEventDone() {
+    this.ui.joystick.reset();
+    this.scene.resume('UI');
+    this.scene.resume();
+    this.lastProgressAt = this.time.now;
+    if (this.collected.size === this.stamps.length) this.events.emit('toast', TEXTS.allStamps);
+  }
+
+  // 사장님이 말해 주는 다음 장소 힌트 (가장 가까운 남은 스탬프, 다 모았으면 밴)
+  nextHint() {
+    const c = this.player.body.center;
+    const left = this.stamps.filter((s) => !this.collected.has(s.id));
+    const targets = left.length ? left : [this.van];
+    let best = null;
+    let bestD = Infinity;
+    for (const t of targets) {
+      const d = Phaser.Math.Distance.Between(c.x, c.y, t.x, t.y);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return '';
+    const sector = Math.round(Phaser.Math.Angle.Between(c.x, c.y, best.x, best.y) / (Math.PI / 4));
+    const names = { 0: 'right', 1: 'downRight', 2: 'down', 3: 'downLeft', 4: 'left', '-4': 'left',
+      '-1': 'upRight', '-2': 'up', '-3': 'upLeft' };
+    const dir = TEXTS.dirs[names[sector]];
+    return left.length ? TEXTS.hintNext(TEXTS.placeNames[best.id], dir) : TEXTS.hintVan(dir);
+  }
+
+  checkVan() {
+    if (!this.van) return;
+    const c = this.player.body.center;
+    if (Phaser.Math.Distance.Between(c.x, c.y, this.van.x, this.van.y) > CONFIG.van.reach) return;
+    const left = this.stamps.length - this.collected.size;
+    if (left === 0) {
+      this.finish();
+    } else if (this.time.now - this.lockedMsgAt > CONFIG.van.lockedMsgEvery) {
+      this.lockedMsgAt = this.time.now;
+      Sound.play('locked');
+      this.events.emit('toast', TEXTS.vanLocked(left));
+    }
+  }
+
+  finish() {
+    this.finished = true;
+    this.finishedAt = Date.now();
+    this.player.move(0, 0);
+    this.arrow.setVisible(false);
+    Sound.play('clear');
+    this.events.emit('goal', { ms: this.elapsed(), hp: this.hp });
+  }
+
+  // 오래 못 찾으면 가장 가까운 남은 스탬프(다 모았으면 밴) 쪽으로 화살표
+  updateGuide() {
+    const now = this.time.now;
+    if (!this.arrow.visible && now - this.lastProgressAt > CONFIG.guide.idleMs) {
+      this.arrow.setVisible(true);
+      this.arrowUntil = now + CONFIG.guide.showMs;
+    }
+    if (!this.arrow.visible) return;
+    if (now > this.arrowUntil) {
+      this.arrow.setVisible(false);
+      this.lastProgressAt = now; // 다음 화살표는 다시 30초 뒤
+      return;
+    }
+    const c = this.player.body.center;
+    const left = this.stamps.filter((s) => !this.collected.has(s.id));
+    const targets = left.length ? left : [this.van];
+    let best = null;
+    let bestD = Infinity;
+    for (const t of targets) {
+      const d = Phaser.Math.Distance.Between(c.x, c.y, t.x, t.y);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return;
+    const angle = Phaser.Math.Angle.Between(c.x, c.y, best.x, best.y);
+    const bob = Math.sin(now / 120) * 4;
+    this.arrow.setPosition(c.x + Math.cos(angle) * (30 + bob), c.y - 8 + Math.sin(angle) * (30 + bob));
+    this.arrow.setRotation(angle);
+  }
+
+  // 가게 정하기: 같은 줄에 이어진 앞면을 최대 3칸씩 끊어 가게 하나로.
+  // 스탬프 장소에서 가장 가까운 가게는 그 장소 종류(코스메·버스킹·…)로 바꿈.
+  planShops(facades, spots) {
+    const size = CONFIG.tile;
+    const sorted = [...facades].sort((a, b) => a.y - b.y || a.x - b.x);
+    const runs = [];
+    for (const f of sorted) {
+      const last = runs[runs.length - 1];
+      if (last && last[0].y === f.y && last[last.length - 1].x === f.x - 1) last.push(f);
+      else runs.push([f]);
+    }
+    const shops = [];
+    const normal = SHOPS.map((s, i) => i).filter((i) => !SHOPS[i].only);
+    for (const run of runs) {
+      for (let i = 0; i < run.length;) {
+        const left = run.length - i;
+        const n = left === 4 ? 2 : Math.min(3, left);
+        const tiles = run.slice(i, i + n);
+        i += n;
+        const x0 = tiles[0].x;
+        const y = tiles[0].y;
+        shops.push({
+          tiles, y,
+          cx: (x0 + n / 2) * size,
+          index: normal[hash(x0, y) % normal.length],
+        });
+      }
+    }
+    for (const [id, type] of Object.entries(STAMP_SHOPS)) {
+      const spot = spots[id];
+      if (!spot) continue;
+      let best = null;
+      let bestD = Infinity;
+      for (const s of shops) {
+        const d = Phaser.Math.Distance.Between(s.cx, (s.y + 0.5) * size, spot.x, spot.y);
+        if (d < bestD) { bestD = d; best = s; }
+      }
+      if (best && bestD < size * 4) {
+        best.index = SHOPS.findIndex((s) => s.type === type);
+        best.stamp = true;
+      }
+    }
+    return shops;
+  }
+
+  // 네온 간판 하나: 빈 간판 판(그림 또는 코드로 그린 판) + 코드로 얹는 한글 글자 + 바닥에 비친 불빛
+  neonSign(cx, cy, word, color, { vertical = false, big = false, reflectY = null } = {}) {
+    const text = this.add.text(cx, cy, vertical ? [...word].join('\n') : word, {
+      fontFamily: KOREAN_FONT,
+      fontSize: big ? '13px' : '11px',
+      fontStyle: 'bold',
+      color,
+      align: 'center',
+      lineSpacing: -2,
+      resolution: 4,
+    }).setOrigin(0.5).setDepth(6).setShadow(0, 0, color, 5, false, true);
+    const bw = text.width + 6;
+    const bh = text.height + 3;
+    const boardKey = vertical ? 'sign-v' : 'sign-h';
+    const num = Phaser.Display.Color.HexStringToColor(color).color;
+    if (this.textures.exists(boardKey)) {
+      this.add.image(cx, cy, boardKey).setDisplaySize(bw, bh).setDepth(5);
+    } else {
+      const g = this.add.graphics().setDepth(5);
+      g.fillStyle(0x120e24, 0.92);
+      g.fillRoundedRect(cx - bw / 2, cy - bh / 2, bw, bh, 3);
+      g.lineStyle(2, num, 0.95);
+      g.strokeRoundedRect(cx - bw / 2, cy - bh / 2, bw, bh, 3);
+    }
+    // 젖은 길바닥에 비친 간판 불빛
+    if (reflectY !== null) {
+      this.add.ellipse(cx, reflectY, bw + 10, 12, num, 0.22).setDepth(1).setBlendMode('ADD');
+    }
+  }
+
+  // 가게마다 그 가게 종류에 맞는 한글 네온 간판 (아이콘 + 글자 + 색)
+  addSigns(shops, charAt) {
+    const size = CONFIG.tile;
+    for (const shop of shops) {
+      const info = SHOPS[shop.index];
+      const y = shop.y;
+      // 가로 간판: 차양 위
+      if (shop.stamp || shop.tiles.length > 1 || hash(shop.tiles[0].x, y) % 2 === 0) {
+        this.neonSign(shop.cx, y * size + 8, `${info.icon} ${info.word}`, info.color, {
+          big: shop.stamp, reflectY: (y + 1) * size + 8,
+        });
+      }
+      // 세로 간판: 위쪽 지붕에 걸쳐 세움 (가끔)
+      const x = shop.tiles[0].x;
+      if (!shop.stamp && hash(x, y) % 4 === 1 && charAt(x, y - 1) === '#' && charAt(x, y - 2) === '#') {
+        this.neonSign((x + 0.5) * size, y * size - 16, info.word.slice(0, 3), info.color, { vertical: true });
+      }
+    }
+
+    // 역 출구 간판
+    const ey = MAP.findIndex((row) => row.includes('E'));
+    if (ey >= 0) {
+      const ex = MAP[ey].indexOf('E');
+      const len = MAP[ey].lastIndexOf('E') - ex + 1;
+      this.neonSign((ex + len / 2) * size, (ey + 0.6) * size, `🚇 ${STATION_SIGN}`, '#7dff9a', { big: true });
+    }
+  }
+
+  update(time, delta) {
+    if (this.finished) return;
+    const now = this.time.now;
+    const dt = Math.min(delta, 50);
+
+    // 방해물은 붙잡혀 있을 때도 움직임
+    for (const t of this.tours) t.update(now, dt);
+    for (const f of this.flyers) f.update(now);
+    for (const l of this.lanes) l.update(now);
+    for (const p of this.pigeons) p.update(now);
+    for (const q of this.queues) q.update(now);
+
+    if (this.isBusy()) {
+      this.player.move(0, 0);
+      return;
+    }
+
+    const k = this.keys;
+    let dx = (k.RIGHT.isDown || k.D.isDown ? 1 : 0) - (k.LEFT.isDown || k.A.isDown ? 1 : 0);
+    let dy = (k.DOWN.isDown || k.S.isDown ? 1 : 0) - (k.UP.isDown || k.W.isDown ? 1 : 0);
+    if (dx || dy) {
+      if (k.SHIFT.isDown) { dx *= 0.5; dy *= 0.5; } // PC는 Shift로 천천히
+    } else if (this.ui.joystick) {
+      dx = this.ui.joystick.value.x;
+      dy = this.ui.joystick.value.y;
+    }
+
+    const c = this.player.body.center;
+    let scale = 1;
+    if (this.crowd.some((p) => p.contains(c.x, c.y))) {
+      scale *= CONFIG.crowd.slow;
+      if (dx || dy) this.bumpPerson(CONFIG.bump.crowdDamage);
+    }
+    if (now < this.speedUpUntil) scale *= CONFIG.food.m.speedUp;
+    this.player.speedScale = scale;
+
+    this.player.move(dx, dy);
+    this.cornerAssist(dx, dy);
+
+    // 걷는 동안 체력이 조금씩 줄어듦
+    if (dx || dy) {
+      this.walkMs += dt;
+      if (this.walkMs >= CONFIG.health.drainEveryMs) {
+        this.walkMs -= CONFIG.health.drainEveryMs;
+        this.setHp(this.hp - 1);
+      }
+    }
+
+    for (const s of this.stamps) {
+      if (!this.collected.has(s.id)
+        && Phaser.Math.Distance.Between(c.x, c.y, s.x, s.y) < CONFIG.stamp.pickupRange) {
+        this.collectStamp(s);
+      }
+    }
+    for (const f of this.stalls) f.update(now);
+    this.checkVan();
+    this.updateGuide();
+  }
+
+  // 좁은 골목 입구 모서리에 걸리면 골목 가운데 쪽으로 살짝 밀어 줌 (터치 조작이 덜 답답하게)
+  cornerAssist(dx, dy) {
+    const body = this.player.body;
+    const size = CONFIG.tile;
+    const step = 3;
+    const open = (tx, ty) => this.isOpenTile(tx, ty);
+    // 앞이 트인 칸 중 가장 가까운 칸의 가운데까지 거리
+    const offsetTo = (pos, aheadOpen) => {
+      const c = Math.floor(pos / size);
+      let best = null;
+      for (const cand of [c, c - 1, c + 1]) {
+        if (!aheadOpen(cand)) continue;
+        const off = (cand + 0.5) * size - pos;
+        if (best === null || Math.abs(off) < Math.abs(best)) best = off;
+      }
+      return best !== null && Math.abs(best) < size ? best : 0;
+    };
+
+    if (Math.abs(dy) > Math.abs(dx) && (body.blocked.up || body.blocked.down)) {
+      const row = Math.floor((dy > 0 ? body.bottom + 1 : body.top - 1) / size);
+      const off = offsetTo(body.center.x, (col) => open(col, row));
+      this.player.x += Phaser.Math.Clamp(off, -step, step);
+    } else if (Math.abs(dx) > Math.abs(dy) && (body.blocked.left || body.blocked.right)) {
+      const col = Math.floor((dx > 0 ? body.right + 1 : body.left - 1) / size);
+      const off = offsetTo(body.center.y, (row) => open(col, row));
+      this.player.y += Phaser.Math.Clamp(off, -step, step);
+    }
+  }
+}

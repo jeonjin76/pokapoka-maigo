@@ -1,0 +1,62 @@
+import { CONFIG } from '../config.js';
+
+// 화면 아무 곳이나 누르고 끌면 나타나는 가상 조이스틱.
+// value 는 { x, y } (-1~1). 손을 떼면 0.
+export class Joystick {
+  constructor(scene) {
+    this.scene = scene;
+    this.value = { x: 0, y: 0 };
+    this.pointerId = null;
+    this.origin = new Phaser.Math.Vector2();
+
+    this.base = scene.add.circle(0, 0, CONFIG.joystick.radius, 0xffffff, 0.25)
+      .setStrokeStyle(2, 0xffffff, 0.6).setVisible(false).setDepth(100);
+    this.thumb = scene.add.circle(0, 0, 18, 0xffffff, 0.7).setVisible(false).setDepth(101);
+
+    scene.input.on('pointerdown', this.onDown, this);
+    scene.input.on('pointermove', this.onMove, this);
+    scene.input.on('pointerup', this.onUp, this);
+    scene.input.on('pointerupoutside', this.onUp, this);
+  }
+
+  onDown(pointer, over) {
+    // 버튼 위를 누른 경우는 조이스틱이 아님
+    if (this.pointerId !== null || (over && over.length)) return;
+    this.pointerId = pointer.id;
+    this.origin.set(pointer.x, pointer.y);
+    this.base.setPosition(pointer.x, pointer.y).setVisible(true);
+    this.thumb.setPosition(pointer.x, pointer.y).setVisible(true);
+  }
+
+  onMove(pointer) {
+    if (pointer.id !== this.pointerId) return;
+    const r = CONFIG.joystick.radius;
+    const dx = pointer.x - this.origin.x;
+    const dy = pointer.y - this.origin.y;
+    const len = Math.hypot(dx, dy);
+    const clamped = Math.min(len, r);
+    const nx = len ? dx / len : 0;
+    const ny = len ? dy / len : 0;
+    this.thumb.setPosition(this.origin.x + nx * clamped, this.origin.y + ny * clamped);
+
+    const strength = clamped / r;
+    if (strength < CONFIG.joystick.deadzone) {
+      this.value = { x: 0, y: 0 };
+    } else {
+      this.value = { x: nx * strength, y: ny * strength };
+    }
+  }
+
+  onUp(pointer) {
+    if (pointer.id !== this.pointerId) return;
+    this.reset();
+  }
+
+  // 연출 등으로 장면이 멈췄다 돌아올 때, 눌린 채로 남지 않게
+  reset() {
+    this.pointerId = null;
+    this.value = { x: 0, y: 0 };
+    this.base.setVisible(false);
+    this.thumb.setVisible(false);
+  }
+}
