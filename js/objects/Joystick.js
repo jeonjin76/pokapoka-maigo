@@ -23,16 +23,18 @@ export class Joystick {
     // 버튼 위를 누른 경우는 조이스틱이 아님
     if (this.pointerId !== null || (over && over.length)) return;
     this.pointerId = pointer.id;
-    this.origin.set(pointer.x, pointer.y);
-    this.base.setPosition(pointer.x, pointer.y).setVisible(true);
-    this.thumb.setPosition(pointer.x, pointer.y).setVisible(true);
+    const px = pointer.x / CONFIG.res;
+    const py = pointer.y / CONFIG.res;
+    this.origin.set(px, py);
+    this.base.setPosition(px, py).setVisible(true);
+    this.thumb.setPosition(px, py).setVisible(true);
   }
 
   onMove(pointer) {
     if (pointer.id !== this.pointerId) return;
     const r = CONFIG.joystick.radius;
-    const dx = pointer.x - this.origin.x;
-    const dy = pointer.y - this.origin.y;
+    const dx = pointer.x / CONFIG.res - this.origin.x;
+    const dy = pointer.y / CONFIG.res - this.origin.y;
     const len = Math.hypot(dx, dy);
     const clamped = Math.min(len, r);
     const nx = len ? dx / len : 0;
@@ -40,10 +42,13 @@ export class Joystick {
     this.thumb.setPosition(this.origin.x + nx * clamped, this.origin.y + ny * clamped);
 
     const strength = clamped / r;
-    if (strength < CONFIG.joystick.deadzone) {
+    // 속도는 두 단계뿐: 살짝 끌면 천천히, 그 이상은 늘 같은 속도 (들쭉날쭉하지 않게)
+    const { deadzone, slowBelow, slowScale } = CONFIG.joystick;
+    if (strength < deadzone) {
       this.value = { x: 0, y: 0 };
     } else {
-      this.value = { x: nx * strength, y: ny * strength };
+      const k = strength < slowBelow ? slowScale : 1;
+      this.value = { x: nx * k, y: ny * k };
     }
   }
 

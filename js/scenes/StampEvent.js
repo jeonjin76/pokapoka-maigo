@@ -1,3 +1,4 @@
+import { fitCamera } from '../util.js';
 import { CONFIG } from '../config.js';
 import { TEXTS } from '../texts.js';
 import { BOSS_ANIMALS, NEON } from '../art.js';
@@ -14,6 +15,7 @@ export class StampEventScene extends Phaser.Scene {
   }
 
   create(data) {
+    fitCamera(this);
     const w = CONFIG.width;
     const h = CONFIG.height;
     const font = CONFIG.font;

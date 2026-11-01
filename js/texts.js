@@ -49,9 +49,11 @@ export const TEXTS = {
   // 방해물
   sumimasen: 'すみません',
   sumimasenSay: 'すみません〜',
+  sumimasenHelp: '団体や行列の前で\nタップ！',
   tourYield: 'どうぞ〜',
+  queueYield: 'お先にどうぞ〜',
   flyerSay: 'チラシどうぞ〜！',
-  queueBlocked: '人気店の行列で通れません…\nしばらく待つと通れます',
+  queueBlocked: '人気店の行列で通れません…\n「すみません」で通してもらおう',
   queueWait: (sec) => `あと${sec}秒`,
   bikeHit: 'わっ！ デリバリーのバイク！',
 
@@ -76,7 +78,7 @@ export const TEXTS = {
   howTo: [
     '画面をドラッグして歩きます',
     '人にぶつかるとHPが減ります',
-    '団体ツアーは「すみません」で通り抜け',
+    '団体や行列は「すみません」で通れる',
     '屋台のごはんでHP回復',
     'ハトのそばはゆっくり歩きましょう',
   ],

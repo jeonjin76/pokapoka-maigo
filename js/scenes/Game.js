@@ -34,23 +34,31 @@ export class GameScene extends Phaser.Scene {
     makeNpcAnims(this);
 
     const size = CONFIG.tile;
-    const rows = MAP.length;
-    const cols = MAP[0].length;
-    const charAt = (x, y) => (MAP[y] && MAP[y][x]) || '#';
-    const isSolid = (x, y) => SOLID_CHARS.includes(charAt(x, y));
-    const center = (x, y) => ({ x: (x + 0.5) * size, y: (y + 0.5) * size });
+    const k = CONFIG.cellTiles; // 맵 글자 한 칸 = k×k 타일
+    const cell = size * k;
+    const rows = MAP.length * k;
+    const cols = MAP[0].length * k;
+    const charAt = (x, y) => (MAP[y] && MAP[y][x]) || '#'; // 글자 칸 좌표
+    const tileChar = (tx, ty) => charAt(Math.floor(tx / k), Math.floor(ty / k)); // 타일 좌표
+    const isSolid = (tx, ty) => SOLID_CHARS.includes(tileChar(tx, ty));
+    const isRoad = (tx, ty) => ty >= 0 && ty < rows && '=D'.includes(tileChar(tx, ty));
 
-    // 글자 격자 → 타일 번호, 그리고 물건 자리 모으기
-    const data = [];
-    const facades = [];
+    // 물건 자리 모으기 (글자 칸 가운데)
     const spots = {};
     const things = [];
+    MAP.forEach((line, y) => [...line].forEach((ch, x) => {
+      const pos = { x: (x + 0.5) * cell, y: (y + 0.5) * cell };
+      if ('P12345V'.includes(ch)) spots[ch] = pos;
+      else if ('GKDHCX'.includes(ch) || FOOD_CHARS.includes(ch)) things.push({ ch, ...pos });
+    }));
+
+    // 글자 격자 → 타일 번호
+    const data = [];
+    const facades = [];
     for (let y = 0; y < rows; y++) {
       const row = [];
       for (let x = 0; x < cols; x++) {
-        const ch = charAt(x, y);
-        if ('P12345V'.includes(ch)) spots[ch] = center(x, y);
-        else if ('GKDHCX'.includes(ch) || FOOD_CHARS.includes(ch)) things.push({ ch, x, y, ...center(x, y) });
+        const ch = tileChar(x, y);
         if (ch === '#') {
           if (!isSolid(x, y + 1) && y + 1 < rows) facades.push({ x, y }); // 가게 앞면은 아래에서 정함
           row.push(TILE.ROOF + (hash(Math.floor(x / 3), Math.floor(y / 3)) % ROOF_COLORS));
@@ -59,8 +67,12 @@ export class GameScene extends Phaser.Scene {
         } else if (ch === 'E') {
           row.push(TILE.STATION);
         } else if (ch === '=' || ch === 'D') {
-          const road = (c) => c === '=' || c === 'D';
-          const middle = road(charAt(x, y - 1)) && road(charAt(x, y + 1));
+          // 큰길 한가운데 줄에만 노란 점선
+          let up = 0;
+          let down = 0;
+          while (isRoad(x, y - up - 1)) up++;
+          while (isRoad(x, y + down + 1)) down++;
+          const middle = up > 0 && (down === up || down - up === 1);
           row.push(middle && x % 2 === 0 ? TILE.ROAD_LINE : TILE.ROAD);
         } else {
           row.push(TILE.ALLEY);
@@ -80,14 +92,14 @@ export class GameScene extends Phaser.Scene {
     this.layer = map.createLayer(0, tiles, 0, 0);
     this.layer.setCollision(BLOCKING_TILES);
 
-    this.addSigns(shops, charAt);
+    this.addSigns(shops, tileChar);
     this.cameras.main.setBackgroundColor('#120e24');
 
     this.worldW = cols * size;
     this.worldH = rows * size;
     this.physics.world.setBounds(0, 0, this.worldW, this.worldH);
 
-    const start = spots.P || center(1, 1);
+    const start = spots.P || { x: cell * 1.5, y: cell * 1.5 };
     this.player = new Player(this, start.x, start.y);
     this.physics.add.collider(this.player, this.layer);
 
@@ -98,7 +110,7 @@ export class GameScene extends Phaser.Scene {
     this.arrow = this.add.image(0, 0, 'arrow').setScale(2).setDepth(20).setVisible(false);
 
     const cam = this.cameras.main;
-    cam.setZoom(CONFIG.zoom);
+    cam.setZoom(CONFIG.zoom * CONFIG.res); // 실제로 그리는 배율(res)만큼 더 키움
     // 위쪽 상태판에 맵 윗줄이 가리지 않도록 그만큼 위로 더 스크롤되게
     const topPad = CONFIG.topBarHeight / CONFIG.zoom;
     cam.setBounds(0, -topPad, this.worldW, this.worldH + topPad);
@@ -168,7 +180,7 @@ export class GameScene extends Phaser.Scene {
       const group = [first];
       for (let i = 0; i < group.length; i++) {
         for (const o of [...left]) {
-          if (Math.abs(o.x - group[i].x) + Math.abs(o.y - group[i].y) <= CONFIG.tile) {
+          if (Math.abs(o.x - group[i].x) + Math.abs(o.y - group[i].y) <= CONFIG.tile * CONFIG.cellTiles) {
             left.delete(o);
             group.push(o);
           }
@@ -192,20 +204,20 @@ export class GameScene extends Phaser.Scene {
 
   addVan(pos) {
     if (!pos) return;
-    // 밴은 V 칸과 그 오른쪽 칸에 걸쳐 서 있음
+    // 밴은 V 칸에서 오른쪽으로 조금 걸쳐 서 있음
     const van = this.physics.add.staticImage(pos.x + CONFIG.tile / 2, pos.y - 2, 'van').setDepth(9);
-    const w = 66; // 그림 크기와 상관없이 맵에서는 가로 66픽셀 (두 칸)
+    const w = 96; // 그림 크기와 상관없이 맵에서는 가로 96픽셀 (시바견의 3배쯤)
     van.setDisplaySize(w, (w * van.height) / van.width);
     van.refreshBody();
-    van.body.setSize(58, 18).setOffset((van.displayWidth - 58) / 2, van.displayHeight - 22);
+    van.body.setSize(84, 20).setOffset((van.displayWidth - 84) / 2, van.displayHeight - 24);
     this.van = van;
     this.physics.add.collider(this.player, van);
     // 차 옆면 흰 판에 「ポカポカ」 (그림이 아니라 코드로 얹는 글자)
     this.add.text(van.x + 3, van.y + van.displayHeight * 0.1, TEXTS.vanLabel, {
-      fontFamily: CONFIG.font, fontSize: '8px', fontStyle: 'bold', color: '#ff6a2a', resolution: 4,
+      fontFamily: CONFIG.font, fontSize: '11px', fontStyle: 'bold', color: '#ff6a2a', resolution: 4,
     }).setOrigin(0.5).setDepth(9);
     // 문이 열리면 반짝반짝
-    this.vanGlow = this.add.circle(van.x, van.y, 42, 0xffd23f, 0).setDepth(8).setBlendMode('ADD');
+    this.vanGlow = this.add.circle(van.x, van.y, 60, 0xffd23f, 0).setDepth(8).setBlendMode('ADD');
   }
 
   // 머리 위 말풍선
@@ -231,13 +243,14 @@ export class GameScene extends Phaser.Scene {
     return this.player.y - this.player.displayHeight + 4;
   }
 
-  // 「すみません」: 근처 단체 관광객이 비켜 줌
+  // 「すみません」: 근처 단체 관광객·맛집 행렬이 비켜 줌
   sumimasen() {
     if (this.isBusy()) return false;
     const now = this.time.now;
     this.say(this.player.x, this.headY(), TEXTS.sumimasenSay, 900);
     let any = false;
     for (const t of this.tours) any = t.trySumimasen(now) || any;
+    for (const q of this.queues) any = q.trySumimasen(now) || any;
     return any;
   }
 
@@ -449,7 +462,7 @@ export class GameScene extends Phaser.Scene {
         const d = Phaser.Math.Distance.Between(s.cx, (s.y + 0.5) * size, spot.x, spot.y);
         if (d < bestD) { bestD = d; best = s; }
       }
-      if (best && bestD < size * 4) {
+      if (best && bestD < size * 6) {
         best.index = SHOPS.findIndex((s) => s.type === type);
         best.stamp = true;
       }
@@ -511,7 +524,8 @@ export class GameScene extends Phaser.Scene {
     if (ey >= 0) {
       const ex = MAP[ey].indexOf('E');
       const len = MAP[ey].lastIndexOf('E') - ex + 1;
-      this.neonSign((ex + len / 2) * size, (ey + 0.6) * size, `🚇 ${STATION_SIGN}`, '#7dff9a', { big: true });
+      const cell = size * CONFIG.cellTiles;
+      this.neonSign((ex + len / 2) * cell, (ey + 0.3) * cell, `🚇 ${STATION_SIGN}`, '#7dff9a', { big: true });
     }
   }
 
@@ -552,7 +566,8 @@ export class GameScene extends Phaser.Scene {
     this.player.speedScale = scale;
 
     this.player.move(dx, dy);
-    this.cornerAssist(dx, dy);
+    this.slideAlongWall(dx, dy);
+    this.cornerAssist(dx, dy, dt);
 
     // 걷는 동안 체력이 조금씩 줄어듦
     if (dx || dy) {
@@ -574,11 +589,28 @@ export class GameScene extends Phaser.Scene {
     this.updateGuide();
   }
 
-  // 좁은 골목 입구 모서리에 걸리면 골목 가운데 쪽으로 살짝 밀어 줌 (터치 조작이 덜 답답하게)
-  cornerAssist(dx, dy) {
+  // 비스듬히 벽에 붙어 걸을 때도 벽을 따라 같은 속도로 미끄러지듯 걷게
+  slideAlongWall(dx, dy) {
+    const body = this.player.body;
+    const v = body.velocity;
+    const speed = Math.hypot(v.x, v.y);
+    if (!dx || !dy || speed < 1) return;
+    // 바로 앞(1픽셀)이 벽인지 직접 확인 (충돌 표시는 한 프레임씩 깜빡여서 속도가 들쭉날쭉해짐)
+    const size = CONFIG.tile;
+    const wall = (px, py) => !this.isOpenTile(Math.floor(px / size), Math.floor(py / size));
+    const ex = dx > 0 ? body.right + 1 : body.left - 1;
+    const ey = dy > 0 ? body.bottom + 1 : body.top - 1;
+    const blockedX = wall(ex, body.top + 1) || wall(ex, body.bottom - 1);
+    const blockedY = wall(body.left + 1, ey) || wall(body.right - 1, ey);
+    if (blockedX && !blockedY) body.setVelocity(0, Math.sign(dy) * speed);
+    else if (blockedY && !blockedX) body.setVelocity(Math.sign(dx) * speed, 0);
+  }
+
+  // 골목 입구 모서리에 걸리면 골목 가운데 쪽으로 살짝 밀어 줌 (터치 조작이 덜 답답하게)
+  cornerAssist(dx, dy, dt) {
     const body = this.player.body;
     const size = CONFIG.tile;
-    const step = 3;
+    const step = (CONFIG.player.speed * dt) / 1000; // 걷는 속도와 같은 빠르기로
     const open = (tx, ty) => this.isOpenTile(tx, ty);
     // 앞이 트인 칸 중 가장 가까운 칸의 가운데까지 거리
     const offsetTo = (pos, aheadOpen) => {

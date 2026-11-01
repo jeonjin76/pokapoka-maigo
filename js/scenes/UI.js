@@ -2,7 +2,7 @@ import { CONFIG } from '../config.js';
 import { TEXTS } from '../texts.js';
 import { Joystick } from '../objects/Joystick.js';
 import { Sound } from '../sound.js';
-import { formatTime } from '../util.js';
+import { formatTime, fitCamera } from '../util.js';
 
 const FONT = CONFIG.font;
 
@@ -13,6 +13,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   create() {
+    fitCamera(this);
     this.gameScene = this.scene.get('Game');
     this.joystick = new Joystick(this);
 
@@ -119,6 +120,11 @@ export class UIScene extends Phaser.Scene {
     this.sumiText = this.add.text(x, y, TEXTS.sumimasen, {
       fontFamily: FONT, fontSize: '12px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5).setDepth(46);
+    // 버튼 바로 위에 쓰임새 설명
+    this.add.text(x, y - r - 8, TEXTS.sumimasenHelp, {
+      fontFamily: FONT, fontSize: '12px', color: '#ffffff', fontStyle: 'bold', align: 'center',
+      backgroundColor: '#1a1530cc', padding: { x: 6, y: 3 }, lineSpacing: 2,
+    }).setOrigin(0.5, 1).setDepth(45);
     this.sumiCool = this.add.graphics().setDepth(47);
     this.sumiPos = { x, y, r };
     this.sumiReadyAt = 0;
@@ -146,10 +152,14 @@ export class UIScene extends Phaser.Scene {
   }
 
   makeMoveHint() {
-    const hint = this.add.text(CONFIG.width / 2, 112, `${TEXTS.hintMove}\n${TEXTS.hintMovePc}`, {
+    const hint = this.add.text(CONFIG.width / 2, CONFIG.topBarHeight + 16, TEXTS.hintMove, {
+      fontFamily: FONT, fontSize: '18px', color: '#ffffff', align: 'center', fontStyle: 'bold',
+      backgroundColor: '#1a1530e6', padding: { x: 14, y: 8 },
+    }).setOrigin(0.5, 0).setDepth(45);
+    const pc = this.add.text(CONFIG.width / 2, hint.y + hint.height + 6, TEXTS.hintMovePc, {
       fontFamily: FONT, fontSize: '13px', color: '#e8e0ff', align: 'center',
-      backgroundColor: '#1a1530cc', padding: { x: 8, y: 4 },
-    }).setOrigin(0.5).setDepth(45);
+      backgroundColor: '#1a1530cc', padding: { x: 10, y: 5 }, lineSpacing: 3,
+    }).setOrigin(0.5, 0).setDepth(45);
 
     // 처음 움직이면 안내 문구를 천천히 지움
     const watch = this.time.addEvent({
@@ -158,7 +168,7 @@ export class UIScene extends Phaser.Scene {
       callback: () => {
         if (this.gameScene.player?.body.speed > 0) {
           watch.remove();
-          this.tweens.add({ targets: hint, alpha: 0, duration: 600, delay: 1500 });
+          this.tweens.add({ targets: [hint, pc], alpha: 0, duration: 600, delay: 2000 });
         }
       },
     });

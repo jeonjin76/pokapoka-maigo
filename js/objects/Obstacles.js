@@ -8,6 +8,7 @@ import { Sound } from '../sound.js';
 // obstacles.png 가 들어오면 사람들 그림이 자동으로 바뀐다 (art.js의 person-*).
 
 const SIZE = () => CONFIG.tile;
+const CELL = () => CONFIG.tile * CONFIG.cellTiles; // 맵 글자 한 칸
 const PERSON_HEIGHT = 26; // 동네 사람 키 (시바견 28픽셀과 비슷하게)
 
 export function makeNpcAnims(scene) {
@@ -67,9 +68,9 @@ function faceWalk(sprite, vx, vy) {
   }
 }
 
-// 사람 발밑 사각형 (단체 관광객이 플레이어를 밀지 않게 미리 확인용)
+// 단체 관광객 한 사람이 차지하는 사각형 (플레이어를 밀지 않게 미리 확인용)
 function feetRect(x, y) {
-  return new Phaser.Geom.Rectangle(x - 10, y + 1, 20, 12);
+  return new Phaser.Geom.Rectangle(x - 12, y - 12, 24, 26);
 }
 
 function playerRect(player) {
@@ -102,6 +103,8 @@ export class Tour {
     for (let i = 0; i <= CONFIG.tour.members; i++) {
       const sprite = makePerson(game, 'tour', x, y, (seed + i) % NPC_COUNT, 'down', true);
       sprite.body.setImmovable(true).setAllowGravity(false);
+      // 몸 전체로 막음 (발만 막으면 두 줄 사이 틈으로 빠져나감)
+      sprite.body.setSize(sprite.width * 0.9, sprite.height * 0.95).setOffset(sprite.width * 0.05, sprite.height * 0.05);
       game.physics.add.collider(game.player, sprite, () => game.bumpPerson(), () => !this.yielding);
       this.members.push(sprite);
     }
@@ -117,11 +120,13 @@ export class Tour {
     return m <= len ? { v: this.min + m, dir: 1 } : { v: this.min + 2 * len - m, dir: -1 };
   }
 
+  // 두 사람씩 나란히 줄지어 걸음 (넓은 골목도 옆으로 빠져나갈 틈이 없게)
   memberXY(s, i) {
-    const p = this.pos(s - i * CONFIG.tour.gap);
+    const p = this.pos(s - Math.floor(i / 2) * CONFIG.tour.gap);
+    const side = (i % 2 ? 1 : -1) * CONFIG.tour.side;
     return this.axis === 'x'
-      ? { x: p.v, y: this.fixed, vx: p.dir, vy: 0 }
-      : { x: this.fixed, y: p.v, vx: 0, vy: p.dir };
+      ? { x: p.v, y: this.fixed + side, vx: p.dir, vy: 0 }
+      : { x: this.fixed + side, y: p.v, vx: 0, vy: p.dir };
   }
 
   place(s, moving = false) {
@@ -350,14 +355,14 @@ export class Queue {
     this.people = [];
     this.closed = true;
     this.bumpAt = -Infinity;
-    const size = SIZE();
+    const size = CELL();
     let n = seed;
     for (const t of tiles) {
       const zone = game.add.zone(t.x, t.y, size, size);
       game.physics.add.existing(zone, true);
       game.physics.add.collider(game.player, zone, () => this.bump(), () => this.closed);
       this.zones.push(zone);
-      for (const dx of [-7, 7]) {
+      for (const dx of [-22, -8, 8, 22]) { // 골목 폭을 꽉 채워 줄 섬
         const sp = makePerson(game, 'crowd', t.x + dx, t.y - 4, n++ % NPC_COUNT, 'up');
         sp.home = { x: sp.x, y: sp.y };
         sp.side = dx;
@@ -388,11 +393,22 @@ export class Queue {
       this.game.tweens.killTweensOf(p);
       this.game.tweens.add({
         targets: p,
-        x: closed ? p.home.x : p.home.x + p.side * 2.5,
+        x: closed ? p.home.x : p.home.x + Math.sign(p.side) * 14,
         alpha: closed ? 1 : 0.25,
         duration: 350,
       });
     });
+  }
+
+  // 「すみません」: 줄 선 사람들이 잠깐 비켜 줌
+  trySumimasen(now) {
+    if (!this.closed) return false;
+    const c = this.game.player.body.center;
+    if (Phaser.Math.Distance.Between(c.x, c.y, this.center.x, this.center.y) > CONFIG.sumimasen.range) return false;
+    this.yieldUntil = now + CONFIG.queue.yieldMs;
+    this.setClosed(false);
+    this.game.say(this.center.x, this.center.y - 24, TEXTS.queueYield, 1200);
+    return true;
   }
 
   overlapsPlayer() {
@@ -403,7 +419,7 @@ export class Queue {
   update(now) {
     const { closedMs, openMs } = CONFIG.queue;
     const t = (((now - this.t0) % (closedMs + openMs)) + closedMs + openMs) % (closedMs + openMs);
-    const wantClosed = t < closedMs;
+    const wantClosed = t < closedMs && !(now < this.yieldUntil);
     if (wantClosed !== this.closed) {
       // 닫힐 때 플레이어가 줄 한가운데 있으면 지나갈 때까지 기다림
       if (!(wantClosed && this.overlapsPlayer())) this.setClosed(wantClosed);

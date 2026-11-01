@@ -4,7 +4,7 @@ import { makeButton } from '../objects/Button.js';
 import { addBackdrop } from '../objects/Backdrop.js';
 import { NEON } from '../art.js';
 import { submitTime } from '../records.js';
-import { formatTime } from '../util.js';
+import { formatTime, fitCamera } from '../util.js';
 import { drawResultCard, shareX, shareThreads, saveImage, copyText } from '../share.js';
 
 // 클리어 화면: 기록, 결과 카드, 할인 코드, 공유, 예약 버튼
@@ -14,6 +14,7 @@ export class ClearScene extends Phaser.Scene {
   }
 
   create(result) {
+    fitCamera(this);
     const { ms, hp } = result;
     const w = CONFIG.width;
     const h = CONFIG.height;

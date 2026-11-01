@@ -4,7 +4,7 @@ import { makeTextures, NEON } from '../art.js';
 import { makeButton } from '../objects/Button.js';
 import { addBackdrop } from '../objects/Backdrop.js';
 import { getBest } from '../records.js';
-import { formatTime } from '../util.js';
+import { formatTime, fitCamera } from '../util.js';
 
 // 시작 화면
 export class TitleScene extends Phaser.Scene {
@@ -13,6 +13,7 @@ export class TitleScene extends Phaser.Scene {
   }
 
   create() {
+    fitCamera(this);
     makeTextures(this);
     const w = CONFIG.width;
     const h = CONFIG.height;
@@ -21,7 +22,13 @@ export class TitleScene extends Phaser.Scene {
     // 배경: 대표 그림(keyart.png)이 있으면 그걸로, 없으면 밤 네온 골목
     addBackdrop(this, 'raw-keyart', 0.35);
 
-    const top = Math.max(60, h * 0.12);
+    // 아래에서부터 자리 잡기: 스타트 버튼(과 자기 베스트)은 화면 아래, 설명 상자는 그 위 남는 칸에 맞춤
+    const best = getBest();
+    const bottomBtn = h - (best ? 74 : 52);
+    const NEEDED = 446; // 제목~스타트 버튼까지 꼭 필요한 높이
+    const spare = Math.max(0, bottomBtn - 48 - NEEDED); // 남는 세로 공간은 위·가운데·아래로 나눔
+    const top = 48 + spare * 0.3;
+    const btnY = bottomBtn - spare * 0.3;
     this.add.text(w / 2, top, TEXTS.titleLine1, {
       fontFamily: font, fontSize: '30px', color: NEON.pink, fontStyle: 'bold',
       stroke: '#120e24', strokeThickness: 6,
@@ -32,7 +39,7 @@ export class TitleScene extends Phaser.Scene {
     }).setOrigin(0.5).setShadow(0, 0, NEON.cyan, 10, true, true);
 
     // 시바견 여행자와 포카포카 밴
-    const artY = top + 140;
+    const artY = top + 118;
     const player = this.add.sprite(w / 2 - 75, artY, 'player-side', 0).setOrigin(0.5, 1);
     player.setScale(84 / player.height);
     if (!this.anims.exists('title-walk')) {
@@ -48,35 +55,39 @@ export class TitleScene extends Phaser.Scene {
     van.setScale(130 / van.width);
     this.tweens.add({ targets: player, y: artY - 3, duration: 250, yoyo: true, repeat: -1 });
 
-    this.add.text(w / 2, artY + 40, TEXTS.titleLead, {
+    const lead = this.add.text(w / 2, artY + 14, TEXTS.titleLead, {
       fontFamily: font, fontSize: '17px', color: '#fff6e6', align: 'center', fontStyle: 'bold',
-      lineSpacing: 6,
-    }).setOrigin(0.5);
+      lineSpacing: 5,
+    }).setOrigin(0.5, 0);
 
     // 스탬프 5개 미리보기
+    const stampY = lead.y + lead.height + 26;
     for (let i = 0; i < 5; i++) {
-      this.add.image(w / 2 + (i - 2) * 46, artY + 100, `stamp-${i + 1}`).setDisplaySize(36, 36);
+      this.add.image(w / 2 + (i - 2) * 46, stampY, `stamp-${i + 1}`).setDisplaySize(34, 34);
     }
 
-    const howY = artY + 140;
-    const howH = TEXTS.howTo.length * 22 + 20;
-    this.add.rectangle(w / 2, howY - 6 + howH / 2, 300, howH, 0x1a1430, 0.85).setStrokeStyle(2, 0x3ff3ff, 0.8);
+    // 놀이 방법 상자: 스탬프 줄과 스타트 버튼 사이 칸에 맞춰 줄 간격을 정함 (겹치지 않게)
+    const howTop = stampY + 28;
+    const howBottom = btnY - 28 - 14;
+    const lines = TEXTS.howTo.length;
+    const lineH = Phaser.Math.Clamp((howBottom - howTop - 16) / lines, 19, 28);
+    const howH = lines * lineH + 16;
+    const boxW = 332;
+    this.add.rectangle(w / 2, howTop + howH / 2, boxW, howH, 0x1a1430, 0.9).setStrokeStyle(2, 0x3ff3ff, 0.8);
     TEXTS.howTo.forEach((line, i) => {
-      this.add.text(w / 2 - 134, howY + i * 22 + 5, `・${line}`, {
-        fontFamily: font, fontSize: '13px', color: '#e8e0ff',
-      });
+      this.add.text(w / 2 - boxW / 2 + 12, howTop + 8 + i * lineH + lineH / 2, `・${line}`, {
+        fontFamily: font, fontSize: '15px', color: '#f2ecff',
+      }).setOrigin(0, 0.5);
     });
 
-    const btnY = Math.min(h - 80, howY + howH + 40);
     makeButton(this, w / 2, btnY, 220, 56, TEXTS.start, {
       color: 0xff3fa4,
       fontSize: 22,
       onClick: () => this.scene.start('Game'),
     });
 
-    const best = getBest();
     if (best) {
-      this.add.text(w / 2, btnY + 50, TEXTS.bestRecord(formatTime(best)), {
+      this.add.text(w / 2, btnY + 46, TEXTS.bestRecord(formatTime(best)), {
         fontFamily: font, fontSize: '15px', color: NEON.yellow, fontStyle: 'bold',
       }).setOrigin(0.5);
     }
